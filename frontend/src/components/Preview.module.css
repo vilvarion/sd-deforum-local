@@ -44,6 +44,19 @@
   transition: width 0.3s;
 }
 
+.stepBar {
+  height: 4px;
+  background: #222;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stepFill {
+  height: 100%;
+  background: #68a;
+  transition: width 0.15s;
+}
+
 .progressText {
   font-size: 13px;
   color: #888;
@@ -97,13 +110,23 @@
 .mainFrame {
   display: flex;
   justify-content: center;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  background: #0e0e0e;
 }
 
 .mainImage {
   max-width: 100%;
   max-height: 512px;
-  border-radius: 6px;
+  border-radius: 0;
   background: #000;
+  display: block;
 }
 
 .thumbStrip {

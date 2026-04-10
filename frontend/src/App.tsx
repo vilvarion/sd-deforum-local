@@ -14,14 +14,27 @@ export default function App() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/models")
-      .then((r) => r.json())
-      .then((data: ModelInfo[]) => setModels(data))
-      .catch(() => {});
+    let cancelled = false;
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const r = await fetch("/api/models");
+          if (r.ok) {
+            const data: ModelInfo[] = await r.json();
+            if (!cancelled) setModels(data);
+            return;
+          }
+        } catch {}
+        await new Promise((res) => setTimeout(res, 2000));
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
   }, []);
 
   const stopPolling = useCallback(() => {
@@ -70,6 +83,7 @@ export default function App() {
   const handleGenerate = async () => {
     setGenerating(true);
     setStatus(null);
+    setImageSize({ width: config.width, height: config.height });
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -88,7 +102,7 @@ export default function App() {
       }
       const { job_id } = await res.json();
       setJobId(job_id);
-      setStatus({ status: "queued", current_frame: 0, total_frames: config.num_frames, error_message: "" });
+      setStatus({ status: "queued", current_frame: 0, total_frames: config.num_frames, current_step: 0, total_steps: 0, error_message: "" });
       startPolling(job_id);
     } catch {
       alert("Could not reach server.");
@@ -99,6 +113,7 @@ export default function App() {
   const handleVid2VidGenerate = async (file: File) => {
     setGenerating(true);
     setStatus(null);
+    setImageSize({ width: vid2vidConfig.width, height: vid2vidConfig.height });
     try {
       const formData = new FormData();
       formData.append("video", file);
@@ -119,7 +134,7 @@ export default function App() {
       }
       const { job_id } = await res.json();
       setJobId(job_id);
-      setStatus({ status: "queued", current_frame: 0, total_frames: 0, error_message: "" });
+      setStatus({ status: "queued", current_frame: 0, total_frames: 0, current_step: 0, total_steps: 0, error_message: "" });
       startPolling(job_id);
     } catch {
       alert("Could not reach server.");
@@ -130,6 +145,7 @@ export default function App() {
   const handleImg2VidGenerate = async (file: File) => {
     setGenerating(true);
     setStatus(null);
+    setImageSize({ width: img2vidConfig.width, height: img2vidConfig.height });
     try {
       const formData = new FormData();
       formData.append("image", file);
@@ -150,7 +166,7 @@ export default function App() {
       }
       const { job_id } = await res.json();
       setJobId(job_id);
-      setStatus({ status: "queued", current_frame: 0, total_frames: img2vidConfig.num_frames, error_message: "" });
+      setStatus({ status: "queued", current_frame: 0, total_frames: img2vidConfig.num_frames, current_step: 0, total_steps: 0, error_message: "" });
       startPolling(job_id);
     } catch {
       alert("Could not reach server.");
@@ -209,7 +225,7 @@ export default function App() {
             models={models}
           />
         )}
-        <Preview jobId={jobId} status={status} onCancel={generating ? handleCancel : undefined} />
+        <Preview jobId={jobId} status={status} onCancel={generating ? handleCancel : undefined} imageSize={imageSize} />
       </main>
     </div>
   );

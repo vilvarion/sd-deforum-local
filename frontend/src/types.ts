@@ -29,6 +29,8 @@ export interface JobStatus {
   status: "queued" | "running" | "done" | "error" | "cancelled";
   current_frame: number;
   total_frames: number;
+  current_step: number;
+  total_steps: number;
   error_message: string;
 }
 

@@ -8,21 +8,16 @@ Deforum Studio — a local web app for generating Deforum-style animated clips u
 
 ## Running
 
-**Backend** (port 8000):
 ```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+./start.sh
+# or: npm start
 ```
-First startup downloads `runwayml/stable-diffusion-v1-5` and loads it into memory. Requires `ffmpeg` on PATH for video stitching. Local model files go in `backend/models/`.
 
-**Frontend** (port 5173):
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Vite proxies `/api/*` to `localhost:8000`. Open `http://localhost:5173`.
+Starts both backend (port 8000) and frontend (port 5173) in one command. Ctrl-C kills both.
+
+On first run, `start.sh` creates `backend/.venv`, installs Python deps, and installs frontend `node_modules`. Subsequent runs skip setup if nothing changed. Open `http://localhost:5173`.
+
+First startup also downloads `runwayml/stable-diffusion-v1-5` and loads it into memory. Requires `ffmpeg` on PATH for video stitching. Local model files go in `backend/models/`.
 
 **Type-check frontend:**
 ```bash

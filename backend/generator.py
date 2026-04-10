@@ -72,6 +72,8 @@ class Job:
     status: JobStatus = JobStatus.QUEUED
     current_frame: int = 0
     total_frames: int = 0
+    current_step: int = 0
+    total_steps: int = 0
     error_message: str = ""
     output_dir: str = ""
     _cancel_requested: bool = field(default=False, repr=False)
@@ -226,6 +228,13 @@ class DeforumGenerator:
         self._current_model_id = model_id
         print(f"Model '{model_id}' loaded on {self._device} with dtype {self._dtype}")
 
+    @staticmethod
+    def _make_step_callback(job: "Job"):
+        def callback(pipeline, step: int, timestep: int, callback_kwargs: dict) -> dict:
+            job.current_step = step + 1
+            return callback_kwargs
+        return callback
+
     @property
     def is_busy(self) -> bool:
         return self._busy
@@ -333,7 +342,7 @@ class DeforumGenerator:
         M[0, 2] += tx
         M[1, 2] += ty
 
-        warped = cv2.warpAffine(image, M, (w, h), borderMode=cv2.BORDER_REFLECT)
+        warped = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REFLECT)
         return warped
 
     def _match_color(self, source: np.ndarray, target: np.ndarray) -> np.ndarray:
@@ -371,8 +380,13 @@ class DeforumGenerator:
                     return
                 job.current_frame = frame_idx
 
+                img2img_steps = max(1, round(config.denoising_strength * config.steps))
+                step_cb = self._make_step_callback(job)
+
                 if init_image_path is not None and not config.use_deforum:
                     # Non-deforum img2vid: every frame uses the source image as base
+                    job.current_step = 0
+                    job.total_steps = img2img_steps
                     result = self._img2img_pipe(
                         prompt=config.prompt,
                         negative_prompt=config.negative_prompt or None,
@@ -381,10 +395,13 @@ class DeforumGenerator:
                         num_inference_steps=config.steps,
                         guidance_scale=config.guidance_scale,
                         generator=generator,
+                        callback_on_step_end=step_cb,
                     )
                     image = result.images[0]
                 elif frame_idx == 0:
                     if source_image is not None:
+                        job.current_step = 0
+                        job.total_steps = img2img_steps
                         result = self._img2img_pipe(
                             prompt=config.prompt,
                             negative_prompt=config.negative_prompt or None,
@@ -393,9 +410,12 @@ class DeforumGenerator:
                             num_inference_steps=config.steps,
                             guidance_scale=config.guidance_scale,
                             generator=generator,
+                            callback_on_step_end=step_cb,
                         )
                         image = result.images[0]
                     else:
+                        job.current_step = 0
+                        job.total_steps = config.steps
                         result = self._txt2img_pipe(
                             prompt=config.prompt,
                             negative_prompt=config.negative_prompt or None,
@@ -404,17 +424,26 @@ class DeforumGenerator:
                             num_inference_steps=config.steps,
                             guidance_scale=config.guidance_scale,
                             generator=generator,
+                            callback_on_step_end=step_cb,
                         )
                         image = result.images[0]
                 else:
                     prev_np = np.array(prev_image)
                     warped_np = self._apply_warp(prev_np, config)
 
+                    # Mild unsharp mask to counteract accumulated warp blur (only when zooming)
+                    if config.zoom_per_frame != 1.0:
+                        _blur = cv2.GaussianBlur(warped_np, (0, 0), sigmaX=1.0)
+                        warped_np = cv2.addWeighted(warped_np, 1.15, _blur, -0.15, 0)
+                        warped_np = np.clip(warped_np, 0, 255).astype(np.uint8)
+
                     if config.color_coherence and reference_frame is not None:
                         warped_np = self._match_color(warped_np, reference_frame)
 
                     warped_pil = Image.fromarray(warped_np)
 
+                    job.current_step = 0
+                    job.total_steps = img2img_steps
                     result = self._img2img_pipe(
                         prompt=config.prompt,
                         negative_prompt=config.negative_prompt or None,
@@ -423,6 +452,7 @@ class DeforumGenerator:
                         num_inference_steps=config.steps,
                         guidance_scale=config.guidance_scale,
                         generator=generator,
+                        callback_on_step_end=step_cb,
                     )
                     image = result.images[0]
 
@@ -506,6 +536,8 @@ class DeforumGenerator:
                 src_path = os.path.join(extracted_dir, f"frame_{i + 1:04d}.png")
                 src_image = Image.open(src_path).convert("RGB")
 
+                job.current_step = 0
+                job.total_steps = max(1, round(config.denoising_strength * config.steps))
                 result = self._img2img_pipe(
                     prompt=config.prompt,
                     negative_prompt=config.negative_prompt or None,
@@ -514,6 +546,7 @@ class DeforumGenerator:
                     num_inference_steps=config.steps,
                     guidance_scale=config.guidance_scale,
                     generator=generator,
+                    callback_on_step_end=self._make_step_callback(job),
                 )
                 out_image = result.images[0]
                 out_image.save(os.path.join(job.output_dir, f"frame_{i:04d}.png"))

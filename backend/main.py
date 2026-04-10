@@ -78,6 +78,8 @@ def job_status(job_id: str):
         "status": job.status.value,
         "current_frame": job.current_frame,
         "total_frames": job.total_frames,
+        "current_step": job.current_step,
+        "total_steps": job.total_steps,
         "error_message": job.error_message,
     }
 

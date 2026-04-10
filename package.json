@@ -1,0 +1,7 @@
+{
+  "name": "deforum-studio",
+  "private": true,
+  "scripts": {
+    "start": "./start.sh"
+  }
+}

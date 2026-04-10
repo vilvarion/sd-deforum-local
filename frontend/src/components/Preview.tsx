@@ -1,14 +1,37 @@
-import { memo, useMemo, useState, useEffect, useCallback } from "react";
+import { memo, useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { JobStatus } from "../types";
 import styles from "./Preview.module.css";
+
+const VideoPlayer = memo(function VideoPlayer({ jobId }: { jobId: string }) {
+  const srcRef = useRef(`/api/jobs/${jobId}/video?t=${Date.now()}`);
+  return (
+    <div className={styles.videoSection}>
+      <video
+        className={styles.video}
+        src={srcRef.current}
+        controls
+        autoPlay
+        loop
+      />
+      <a
+        className={styles.downloadBtn}
+        href={`/api/jobs/${jobId}/video`}
+        download="deforum.mp4"
+      >
+        Download MP4
+      </a>
+    </div>
+  );
+});
 
 interface Props {
   jobId: string | null;
   status: JobStatus | null;
   onCancel?: () => void;
+  imageSize?: { width: number; height: number } | null;
 }
 
-export default memo(function Preview({ jobId, status, onCancel }: Props) {
+export default memo(function Preview({ jobId, status, onCancel, imageSize }: Props) {
   const availableFrames = useMemo(() => {
     if (!status || !jobId) return [];
     const count = status.status === "done" ? status.total_frames : status.current_frame;
@@ -70,6 +93,12 @@ export default memo(function Preview({ jobId, status, onCancel }: Props) {
     ? Math.round((status.current_frame / status.total_frames) * 100)
     : 0;
 
+  const stepPct = status.total_steps > 0
+    ? Math.round((status.current_step / status.total_steps) * 100)
+    : 0;
+
+  const showPlaceholder = isRunning && displayFrame === null && imageSize != null;
+
   return (
     <div className={styles.panel}>
       {isError && <div className={styles.error}>Error: {status.error_message}</div>}
@@ -82,6 +111,16 @@ export default memo(function Preview({ jobId, status, onCancel }: Props) {
           <span className={styles.progressText}>
             Frame {status.current_frame} / {status.total_frames} ({progressPct}%)
           </span>
+          {status.total_steps > 0 && (
+            <>
+              <div className={styles.stepBar}>
+                <div className={styles.stepFill} style={{ width: `${stepPct}%` }} />
+              </div>
+              <span className={styles.progressText}>
+                Step {status.current_step} / {status.total_steps}
+              </span>
+            </>
+          )}
           {onCancel && (
             <button className={styles.cancelBtn} onClick={onCancel}>
               Cancel
@@ -90,22 +129,12 @@ export default memo(function Preview({ jobId, status, onCancel }: Props) {
         </div>
       )}
 
-      {isDone && (
-        <div className={styles.videoSection}>
-          <video
-            className={styles.video}
-            src={`/api/jobs/${jobId}/video?t=${Date.now()}`}
-            controls
-            autoPlay
-            loop
-          />
-          <a
-            className={styles.downloadBtn}
-            href={`/api/jobs/${jobId}/video`}
-            download="deforum.mp4"
-          >
-            Download MP4
-          </a>
+      {showPlaceholder && (
+        <div
+          className={styles.mainFrame}
+          style={{ width: imageSize!.width, height: imageSize!.height }}
+        >
+          <div className={styles.placeholder} />
         </div>
       )}
 
@@ -132,6 +161,9 @@ export default memo(function Preview({ jobId, status, onCancel }: Props) {
           ))}
         </div>
       )}
+
+
+      {isDone && <VideoPlayer jobId={jobId} />}
     </div>
   );
 })
