@@ -41,7 +41,7 @@ export default function DeforumControls({ config, onChange, onGenerate, disabled
         <label className={styles.fieldLabel}>Prompt</label>
         <textarea
           className={styles.promptArea}
-          rows={4}
+          rows={3}
           value={config.prompt}
           onChange={(e) => set("prompt", e.target.value)}
           placeholder="A fantasy landscape, highly detailed..."
@@ -68,15 +68,17 @@ export default function DeforumControls({ config, onChange, onGenerate, disabled
         onHeightChange={(v) => set("height", v)}
       />
 
-      <SliderField label="Denoising Strength" value={config.denoising_strength} min={0} max={1} step={0.05} onChange={(v) => set("denoising_strength", v)} />
-      <SliderField label="Guidance Scale" value={config.guidance_scale} min={1} max={20} step={0.5} onChange={(v) => set("guidance_scale", v)} />
-      <SliderField label="Steps" value={config.steps} min={10} max={50} step={1} onChange={(v) => set("steps", v)} />
-      <SliderField label="Frames" value={config.num_frames} min={2} max={30} step={1} onChange={(v) => set("num_frames", v)} />
-      <SliderField label="Zoom / Frame" value={config.zoom_per_frame} min={0.9} max={1.1} step={0.01} onChange={(v) => set("zoom_per_frame", v)} />
-      <SliderField label="Rotate / Frame" value={config.rotate_per_frame} min={-5} max={5} step={0.5} onChange={(v) => set("rotate_per_frame", v)} />
-      <SliderField label="Translate X" value={config.translate_x} min={-20} max={20} step={1} onChange={(v) => set("translate_x", v)} />
-      <SliderField label="Translate Y" value={config.translate_y} min={-20} max={20} step={1} onChange={(v) => set("translate_y", v)} />
-      <SliderField label="FPS" value={config.fps} min={4} max={30} step={1} onChange={(v) => set("fps", v)} />
+      <div className={styles.sliderGrid}>
+        <SliderField label="Denoising" value={config.denoising_strength} min={0} max={1} step={0.05} onChange={(v) => set("denoising_strength", v)} />
+        <SliderField label="CFG Scale" value={config.guidance_scale} min={1} max={20} step={0.5} onChange={(v) => set("guidance_scale", v)} />
+        <SliderField label="Steps" value={config.steps} min={10} max={50} step={1} onChange={(v) => set("steps", v)} />
+        <SliderField label="Frames" value={config.num_frames} min={2} max={30} step={1} onChange={(v) => set("num_frames", v)} />
+        <SliderField label="Zoom / Frame" value={config.zoom_per_frame} min={0.9} max={1.1} step={0.01} onChange={(v) => set("zoom_per_frame", v)} />
+        <SliderField label="Rotate / Frame" value={config.rotate_per_frame} min={-5} max={5} step={0.5} onChange={(v) => set("rotate_per_frame", v)} />
+        <SliderField label="Translate X" value={config.translate_x} min={-20} max={20} step={1} onChange={(v) => set("translate_x", v)} />
+        <SliderField label="Translate Y" value={config.translate_y} min={-20} max={20} step={1} onChange={(v) => set("translate_y", v)} />
+        <SliderField label="FPS" value={config.fps} min={4} max={30} step={1} onChange={(v) => set("fps", v)} />
+      </div>
 
       <div className={styles.field}>
         <label className={styles.fieldLabel}>Seed</label>

@@ -1,12 +1,10 @@
 .panel {
-  width: var(--controls-panel-width);
-  min-width: var(--controls-panel-width);
-  padding: var(--space-7);
+  flex: 1;
+  padding: var(--space-3);
   overflow-y: auto;
-  border-right: 1px solid var(--color-border-subtle);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .section {
@@ -83,9 +81,14 @@
   cursor: not-allowed;
 }
 
+.sliderGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
 .generateBtn {
-  margin-top: var(--space-3);
-  padding: var(--space-5);
+  padding: var(--space-4);
   border: none;
   border-radius: var(--radius-lg);
   background: var(--color-accent);

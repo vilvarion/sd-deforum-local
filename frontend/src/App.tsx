@@ -26,43 +26,41 @@ export default function App() {
   return (
     <div className={styles.root}>
       <Tabs className={styles.tabs}>
-        <header className={styles.header}>
-          <span className={styles.title}>Deforum Studio</span>
-          <TabList className={styles.tabList} aria-label="Generation mode">
-            <Tab id="deforum" className={styles.tab}>Deforum</Tab>
-            <Tab id="vid2vid" className={styles.tab}>Vid2Vid</Tab>
-            <Tab id="img2vid" className={styles.tab}>Img2Vid</Tab>
-          </TabList>
-        </header>
-
         <div className={styles.main}>
-          <TabPanel id="deforum" className={styles.tabPanel}>
-            <DeforumControls
-              config={config}
-              onChange={setConfig}
-              onGenerate={() => handleGenerate(config)}
-              disabled={generating}
-              models={models}
-            />
-          </TabPanel>
-          <TabPanel id="vid2vid" className={styles.tabPanel}>
-            <Vid2VidControls
-              config={vid2vidConfig}
-              onChange={setVid2VidConfig}
-              onGenerate={(file) => handleVid2VidGenerate(file, vid2vidConfig)}
-              disabled={generating}
-              models={models}
-            />
-          </TabPanel>
-          <TabPanel id="img2vid" className={styles.tabPanel}>
-            <Img2VidControls
-              config={img2vidConfig}
-              onChange={setImg2VidConfig}
-              onGenerate={(file) => handleImg2VidGenerate(file, img2vidConfig)}
-              disabled={generating}
-              models={models}
-            />
-          </TabPanel>
+          <div className={styles.sidebar}>
+            <TabList className={styles.tabList} aria-label="Generation mode">
+              <Tab id="deforum" className={styles.tab}>Deforum</Tab>
+              <Tab id="vid2vid" className={styles.tab}>Vid2Vid</Tab>
+              <Tab id="img2vid" className={styles.tab}>Img2Vid</Tab>
+            </TabList>
+            <TabPanel id="deforum" className={styles.tabPanel}>
+              <DeforumControls
+                config={config}
+                onChange={setConfig}
+                onGenerate={() => handleGenerate(config)}
+                disabled={generating}
+                models={models}
+              />
+            </TabPanel>
+            <TabPanel id="vid2vid" className={styles.tabPanel}>
+              <Vid2VidControls
+                config={vid2vidConfig}
+                onChange={setVid2VidConfig}
+                onGenerate={(file) => handleVid2VidGenerate(file, vid2vidConfig)}
+                disabled={generating}
+                models={models}
+              />
+            </TabPanel>
+            <TabPanel id="img2vid" className={styles.tabPanel}>
+              <Img2VidControls
+                config={img2vidConfig}
+                onChange={setImg2VidConfig}
+                onGenerate={(file) => handleImg2VidGenerate(file, img2vidConfig)}
+                disabled={generating}
+                models={models}
+              />
+            </TabPanel>
+          </div>
           <Preview
             jobId={jobId}
             status={status}
