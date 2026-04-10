@@ -1,0 +1,47 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-label);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-label);
+}
+
+.button {
+  align-self: flex-start;
+  padding: 6px var(--space-5);
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+  font-family: var(--font-family-ui);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.button[data-hovered] {
+  border-color: var(--color-border-focus);
+  color: var(--color-text-primary);
+}
+
+.button[data-focus-visible] {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.button[data-pressed] {
+  background: var(--color-bg-hover);
+}
+
+.filename {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

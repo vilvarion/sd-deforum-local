@@ -4,29 +4,26 @@ import { GenerationConfig, ModelInfo } from "../types";
 import SliderField from "./ui/SliderField";
 import SelectField from "./ui/SelectField";
 import CheckboxField from "./ui/CheckboxField";
-import FileTriggerField from "./ui/FileTriggerField";
 import SizeSelect from "./SizeSelect";
 import styles from "./DeforumControls.module.css";
 
 interface Props {
   config: GenerationConfig;
   onChange: (c: GenerationConfig) => void;
-  onGenerate: (file: File) => void;
+  onGenerate: () => void;
   disabled: boolean;
   models: ModelInfo[];
 }
 
-export default function Img2VidControls({ config, onChange, onGenerate, disabled, models }: Props) {
+export default function DeforumControls({ config, onChange, onGenerate, disabled, models }: Props) {
   const [randomSeed, setRandomSeed] = useState(true);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const set = <K extends keyof GenerationConfig>(key: K, value: GenerationConfig[K]) =>
     onChange({ ...config, [key]: value });
 
   const handleGenerate = () => {
-    if (!selectedFile) return;
     if (randomSeed) onChange({ ...config, seed: null });
-    onGenerate(selectedFile);
+    onGenerate();
   };
 
   const modelItems = models.map((m) => ({ id: m.id, label: m.name }));
@@ -38,13 +35,6 @@ export default function Img2VidControls({ config, onChange, onGenerate, disabled
         selectedKey={config.model_id}
         onSelectionChange={(v) => set("model_id", v)}
         items={modelItems}
-      />
-
-      <FileTriggerField
-        label="Image File"
-        accept="image/*"
-        selectedFile={selectedFile}
-        onSelect={setSelectedFile}
       />
 
       <div className={styles.section}>
@@ -82,22 +72,10 @@ export default function Img2VidControls({ config, onChange, onGenerate, disabled
       <SliderField label="Guidance Scale" value={config.guidance_scale} min={1} max={20} step={0.5} onChange={(v) => set("guidance_scale", v)} />
       <SliderField label="Steps" value={config.steps} min={10} max={50} step={1} onChange={(v) => set("steps", v)} />
       <SliderField label="Frames" value={config.num_frames} min={2} max={30} step={1} onChange={(v) => set("num_frames", v)} />
-
-      <CheckboxField
-        label="Use Deforum"
-        isSelected={config.use_deforum}
-        onChange={(v) => set("use_deforum", v)}
-      />
-
-      {config.use_deforum && (
-        <>
-          <SliderField label="Zoom / Frame" value={config.zoom_per_frame} min={0.9} max={1.1} step={0.01} onChange={(v) => set("zoom_per_frame", v)} />
-          <SliderField label="Rotate / Frame" value={config.rotate_per_frame} min={-5} max={5} step={0.5} onChange={(v) => set("rotate_per_frame", v)} />
-          <SliderField label="Translate X" value={config.translate_x} min={-20} max={20} step={1} onChange={(v) => set("translate_x", v)} />
-          <SliderField label="Translate Y" value={config.translate_y} min={-20} max={20} step={1} onChange={(v) => set("translate_y", v)} />
-        </>
-      )}
-
+      <SliderField label="Zoom / Frame" value={config.zoom_per_frame} min={0.9} max={1.1} step={0.01} onChange={(v) => set("zoom_per_frame", v)} />
+      <SliderField label="Rotate / Frame" value={config.rotate_per_frame} min={-5} max={5} step={0.5} onChange={(v) => set("rotate_per_frame", v)} />
+      <SliderField label="Translate X" value={config.translate_x} min={-20} max={20} step={1} onChange={(v) => set("translate_x", v)} />
+      <SliderField label="Translate Y" value={config.translate_y} min={-20} max={20} step={1} onChange={(v) => set("translate_y", v)} />
       <SliderField label="FPS" value={config.fps} min={4} max={30} step={1} onChange={(v) => set("fps", v)} />
 
       <div className={styles.field}>
@@ -123,20 +101,18 @@ export default function Img2VidControls({ config, onChange, onGenerate, disabled
         </div>
       </div>
 
-      {config.use_deforum && (
-        <CheckboxField
-          label="Color Coherence"
-          isSelected={config.color_coherence}
-          onChange={(v) => set("color_coherence", v)}
-        />
-      )}
+      <CheckboxField
+        label="Color Coherence"
+        isSelected={config.color_coherence}
+        onChange={(v) => set("color_coherence", v)}
+      />
 
       <Button
         className={styles.generateBtn}
         onPress={handleGenerate}
-        isDisabled={disabled || !config.prompt.trim() || !selectedFile}
+        isDisabled={disabled || !config.prompt.trim()}
       >
-        {disabled ? "Generating..." : "Animate Image"}
+        {disabled ? "Generating..." : "Generate"}
       </Button>
     </div>
   );

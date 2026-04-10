@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 from contextlib import asynccontextmanager
@@ -8,9 +9,15 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from generator import DeforumGenerator, GenerationConfig, Vid2VidConfig, JobStatus
+from generator import DeforumGenerator, GenerationConfig, Vid2VidConfig
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 generator = DeforumGenerator(
     output_root=os.path.join(os.path.dirname(__file__), "outputs"),
@@ -20,9 +27,9 @@ generator = DeforumGenerator(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Loading Stable Diffusion model...")
+    logger.info("Loading Stable Diffusion model...")
     generator.load_model()
-    print("Model ready.")
+    logger.info("Model ready.")
     yield
 
 
@@ -44,19 +51,20 @@ def list_models():
 class GenerateRequest(BaseModel):
     prompt: str = ""
     negative_prompt: str = ""
-    num_frames: int = 15
-    width: int = 512
-    height: int = 512
-    denoising_strength: float = 0.55
-    guidance_scale: float = 7.5
-    steps: int = 25
-    zoom_per_frame: float = 1.02
-    rotate_per_frame: float = 0.0
-    translate_x: float = 0.0
-    translate_y: float = 0.0
-    seed: Optional[int] = None
-    fps: int = 12
+    num_frames: int = Field(default=15, ge=2, le=120)
+    width: int = Field(default=512, ge=64, le=2048)
+    height: int = Field(default=512, ge=64, le=2048)
+    denoising_strength: float = Field(default=0.55, ge=0.0, le=1.0)
+    guidance_scale: float = Field(default=7.5, ge=1.0, le=30.0)
+    steps: int = Field(default=25, ge=1, le=150)
+    zoom_per_frame: float = Field(default=1.02, ge=0.5, le=2.0)
+    rotate_per_frame: float = Field(default=0.0, ge=-45.0, le=45.0)
+    translate_x: float = Field(default=0.0, ge=-100.0, le=100.0)
+    translate_y: float = Field(default=0.0, ge=-100.0, le=100.0)
+    seed: Optional[int] = Field(default=None, ge=0, le=4294967295)
+    fps: int = Field(default=12, ge=1, le=60)
     color_coherence: bool = True
+    use_deforum: bool = True
     model_id: str = "runwayml/stable-diffusion-v1-5"
 
 
@@ -110,13 +118,13 @@ def job_video(job_id: str):
 class Vid2VidRequest(BaseModel):
     prompt: str = ""
     negative_prompt: str = ""
-    width: int = 512
-    height: int = 512
-    denoising_strength: float = 0.55
-    guidance_scale: float = 7.5
-    steps: int = 25
-    seed: Optional[int] = None
-    extraction_fps: int = 12
+    width: int = Field(default=512, ge=64, le=2048)
+    height: int = Field(default=512, ge=64, le=2048)
+    denoising_strength: float = Field(default=0.55, ge=0.0, le=1.0)
+    guidance_scale: float = Field(default=7.5, ge=1.0, le=30.0)
+    steps: int = Field(default=25, ge=1, le=150)
+    seed: Optional[int] = Field(default=None, ge=0, le=4294967295)
+    extraction_fps: int = Field(default=12, ge=1, le=60)
     model_id: str = "runwayml/stable-diffusion-v1-5"
 
 
@@ -125,7 +133,9 @@ async def vid2vid(video: UploadFile = File(...), config_json: str = Form(...)):
     try:
         parsed = json.loads(config_json)
         req = Vid2VidRequest(**parsed)
-    except (json.JSONDecodeError, Exception) as e:
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+    except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid config: {e}")
 
     config = Vid2VidConfig(**req.model_dump())
@@ -150,7 +160,9 @@ async def img2vid(image: UploadFile = File(...), config_json: str = Form(...)):
     try:
         parsed = json.loads(config_json)
         req = GenerateRequest(**parsed)
-    except (json.JSONDecodeError, Exception) as e:
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+    except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid config: {e}")
 
     config = GenerationConfig(**req.model_dump())

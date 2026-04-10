@@ -1,0 +1,117 @@
+.panel {
+  width: var(--controls-panel-width);
+  min-width: var(--controls-panel-width);
+  padding: var(--space-7);
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fieldLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-label);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-label);
+}
+
+.promptArea,
+.negArea {
+  width: 100%;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  padding: var(--space-3);
+  font-size: var(--font-size-base);
+  resize: vertical;
+  font-family: var(--font-family-ui);
+  line-height: var(--line-height-base);
+  transition: var(--transition-border);
+}
+
+.promptArea:focus,
+.negArea:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sizeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.seedRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.numInput {
+  flex: 1;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  padding: 4px var(--space-2);
+  font-size: var(--font-size-base);
+  font-family: var(--font-family-ui);
+  transition: var(--transition-border);
+}
+
+.numInput:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+}
+
+.numInput:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.generateBtn {
+  margin-top: var(--space-3);
+  padding: var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  font-family: var(--font-family-ui);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.generateBtn[data-hovered]:not([data-disabled]) {
+  background: var(--color-accent-hover);
+}
+
+.generateBtn[data-disabled] {
+  background: var(--color-bg-disabled);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.generateBtn[data-focus-visible] {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.generateBtn[data-pressed] {
+  opacity: 0.9;
+}

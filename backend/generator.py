@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 import time
@@ -7,6 +8,8 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Union
+
+logger = logging.getLogger(__name__)
 
 import glob as globmod
 import shutil
@@ -125,7 +128,7 @@ class DeforumGenerator:
             if "expected shape" not in str(e):
                 raise
             # Model uses linear attention projections — provide original config
-            print(f"Retrying with linear-projection config for {local_path}")
+            logger.info("Retrying with linear-projection config for %s", local_path)
             return StableDiffusionPipeline.from_single_file(
                 local_path,
                 torch_dtype=self._dtype,
@@ -226,7 +229,7 @@ class DeforumGenerator:
         self._txt2img_pipe.enable_attention_slicing()
         self._img2img_pipe.enable_attention_slicing()
         self._current_model_id = model_id
-        print(f"Model '{model_id}' loaded on {self._device} with dtype {self._dtype}")
+        logger.info("Model '%s' loaded on %s with dtype %s", model_id, self._device, self._dtype)
 
     @staticmethod
     def _make_step_callback(job: "Job"):
@@ -487,8 +490,7 @@ class DeforumGenerator:
         except Exception as e:
             job.status = JobStatus.ERROR
             job.error_message = str(e)
-            import traceback
-            traceback.print_exc()
+            logger.exception("Job %s failed", job.job_id)
         finally:
             with self._lock:
                 self._busy = False
@@ -574,8 +576,7 @@ class DeforumGenerator:
         except Exception as e:
             job.status = JobStatus.ERROR
             job.error_message = str(e)
-            import traceback
-            traceback.print_exc()
+            logger.exception("Job %s failed", job.job_id)
         finally:
             with self._lock:
                 self._busy = False

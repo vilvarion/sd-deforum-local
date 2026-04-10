@@ -1,4 +1,5 @@
-import styles from "./Controls.module.css";
+import SelectField from "./ui/SelectField";
+import styles from "./DeforumControls.module.css";
 
 interface Props {
   width: number;
@@ -8,26 +9,23 @@ interface Props {
 }
 
 const SIZES = [256, 384, 512, 768];
+const SIZE_ITEMS = SIZES.map((s) => ({ id: s, label: String(s) }));
 
 export default function SizeSelect({ width, height, onWidthChange, onHeightChange }: Props) {
   return (
-    <div className={styles.grid}>
-      <div className={styles.field}>
-        <label>Width</label>
-        <select value={width} onChange={(e) => onWidthChange(parseInt(e.target.value))}>
-          {SIZES.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-      </div>
-      <div className={styles.field}>
-        <label>Height</label>
-        <select value={height} onChange={(e) => onHeightChange(parseInt(e.target.value))}>
-          {SIZES.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-      </div>
+    <div className={styles.sizeGrid}>
+      <SelectField
+        label="Width"
+        selectedKey={width}
+        onSelectionChange={onWidthChange}
+        items={SIZE_ITEMS}
+      />
+      <SelectField
+        label="Height"
+        selectedKey={height}
+        onSelectionChange={onHeightChange}
+        items={SIZE_ITEMS}
+      />
     </div>
   );
 }

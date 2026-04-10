@@ -1,232 +1,78 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { GenerationConfig, Vid2VidConfig, JobStatus, ModelInfo, defaultConfig, defaultVid2VidConfig } from "./types";
-import Controls from "./components/Controls";
+import { useState } from "react";
+import { Tabs, TabList, Tab, TabPanel } from "react-aria-components";
+import { GenerationConfig, Vid2VidConfig, defaultConfig, defaultVid2VidConfig } from "./types";
+import { useJobPolling } from "./hooks/useJobPolling";
+import { useGenerationActions } from "./hooks/useGenerationActions";
+import DeforumControls from "./components/DeforumControls";
 import Vid2VidControls from "./components/Vid2VidControls";
 import Img2VidControls from "./components/Img2VidControls";
 import Preview from "./components/Preview";
+import Toast from "./components/ui/Toast";
 import styles from "./App.module.css";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"deforum" | "vid2vid" | "img2vid">("deforum");
   const [config, setConfig] = useState<GenerationConfig>({ ...defaultConfig });
   const [vid2vidConfig, setVid2VidConfig] = useState<Vid2VidConfig>({ ...defaultVid2VidConfig });
   const [img2vidConfig, setImg2VidConfig] = useState<GenerationConfig>({ ...defaultConfig });
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [status, setStatus] = useState<JobStatus | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const pollRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      while (!cancelled) {
-        try {
-          const r = await fetch("/api/models");
-          if (r.ok) {
-            const data: ModelInfo[] = await r.json();
-            if (!cancelled) setModels(data);
-            return;
-          }
-        } catch {}
-        await new Promise((res) => setTimeout(res, 2000));
-      }
-    };
-    poll();
-    return () => { cancelled = true; };
-  }, []);
+  const { status, jobId, generating, models, startJob, handleCancel } = useJobPolling();
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current !== null) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
+  const { toast, clearToast, handleGenerate, handleVid2VidGenerate, handleImg2VidGenerate } =
+    useGenerationActions({ config, vid2vidConfig, img2vidConfig, startJob });
 
-  const startPolling = useCallback(
-    (id: string) => {
-      stopPolling();
-      pollRef.current = window.setInterval(async () => {
-        try {
-          const res = await fetch(`/api/jobs/${id}/status`);
-          if (!res.ok) return;
-          const data: JobStatus = await res.json();
-          setStatus(data);
-          if (data.status === "done" || data.status === "error" || data.status === "cancelled") {
-            stopPolling();
-            setGenerating(false);
-          }
-        } catch {
-          /* ignore network blips */
-        }
-      }, 1000);
-    },
-    [stopPolling]
-  );
-
-  useEffect(() => () => stopPolling(), [stopPolling]);
-
-  const handleCancel = useCallback(async () => {
-    if (!jobId) return;
-    try {
-      const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" });
-      if (!res.ok) return;
-      stopPolling();
-      setGenerating(false);
-      setStatus((prev) => prev ? { ...prev, status: "error", error_message: "Cancelled by user" } : prev);
-    } catch {
-      /* ignore */
-    }
-  }, [jobId, stopPolling]);
-
-  const handleGenerate = async () => {
-    setGenerating(true);
-    setStatus(null);
-    setImageSize({ width: config.width, height: config.height });
-    try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-      if (res.status === 409) {
-        alert("A job is already running.");
-        setGenerating(false);
-        return;
-      }
-      if (!res.ok) {
-        alert("Failed to start generation.");
-        setGenerating(false);
-        return;
-      }
-      const { job_id } = await res.json();
-      setJobId(job_id);
-      setStatus({ status: "queued", current_frame: 0, total_frames: config.num_frames, current_step: 0, total_steps: 0, error_message: "" });
-      startPolling(job_id);
-    } catch {
-      alert("Could not reach server.");
-      setGenerating(false);
-    }
-  };
-
-  const handleVid2VidGenerate = async (file: File) => {
-    setGenerating(true);
-    setStatus(null);
-    setImageSize({ width: vid2vidConfig.width, height: vid2vidConfig.height });
-    try {
-      const formData = new FormData();
-      formData.append("video", file);
-      formData.append("config_json", JSON.stringify(vid2vidConfig));
-      const res = await fetch("/api/vid2vid", {
-        method: "POST",
-        body: formData,
-      });
-      if (res.status === 409) {
-        alert("A job is already running.");
-        setGenerating(false);
-        return;
-      }
-      if (!res.ok) {
-        alert("Failed to start vid2vid processing.");
-        setGenerating(false);
-        return;
-      }
-      const { job_id } = await res.json();
-      setJobId(job_id);
-      setStatus({ status: "queued", current_frame: 0, total_frames: 0, current_step: 0, total_steps: 0, error_message: "" });
-      startPolling(job_id);
-    } catch {
-      alert("Could not reach server.");
-      setGenerating(false);
-    }
-  };
-
-  const handleImg2VidGenerate = async (file: File) => {
-    setGenerating(true);
-    setStatus(null);
-    setImageSize({ width: img2vidConfig.width, height: img2vidConfig.height });
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      formData.append("config_json", JSON.stringify(img2vidConfig));
-      const res = await fetch("/api/img2vid", {
-        method: "POST",
-        body: formData,
-      });
-      if (res.status === 409) {
-        alert("A job is already running.");
-        setGenerating(false);
-        return;
-      }
-      if (!res.ok) {
-        alert("Failed to start img2vid processing.");
-        setGenerating(false);
-        return;
-      }
-      const { job_id } = await res.json();
-      setJobId(job_id);
-      setStatus({ status: "queued", current_frame: 0, total_frames: img2vidConfig.num_frames, current_step: 0, total_steps: 0, error_message: "" });
-      startPolling(job_id);
-    } catch {
-      alert("Could not reach server.");
-      setGenerating(false);
-    }
-  };
+  const activeConfig = config;
+  const imageSize = { width: activeConfig.width, height: activeConfig.height };
 
   return (
     <div className={styles.root}>
-      <header className={styles.header}>
-        Deforum Studio
-        <div className={styles.tabs}>
-          <button
-            className={`${styles.tabBtn} ${activeTab === "deforum" ? styles.tabActive : ""}`}
-            onClick={() => setActiveTab("deforum")}
-          >
-            Deforum
-          </button>
-          <button
-            className={`${styles.tabBtn} ${activeTab === "vid2vid" ? styles.tabActive : ""}`}
-            onClick={() => setActiveTab("vid2vid")}
-          >
-            Vid2Vid
-          </button>
-          <button
-            className={`${styles.tabBtn} ${activeTab === "img2vid" ? styles.tabActive : ""}`}
-            onClick={() => setActiveTab("img2vid")}
-          >
-            Img2Vid
-          </button>
+      <Tabs className={styles.tabs}>
+        <header className={styles.header}>
+          <span className={styles.title}>Deforum Studio</span>
+          <TabList className={styles.tabList} aria-label="Generation mode">
+            <Tab id="deforum" className={styles.tab}>Deforum</Tab>
+            <Tab id="vid2vid" className={styles.tab}>Vid2Vid</Tab>
+            <Tab id="img2vid" className={styles.tab}>Img2Vid</Tab>
+          </TabList>
+        </header>
+
+        <div className={styles.main}>
+          <TabPanel id="deforum" className={styles.tabPanel}>
+            <DeforumControls
+              config={config}
+              onChange={setConfig}
+              onGenerate={() => handleGenerate(config)}
+              disabled={generating}
+              models={models}
+            />
+          </TabPanel>
+          <TabPanel id="vid2vid" className={styles.tabPanel}>
+            <Vid2VidControls
+              config={vid2vidConfig}
+              onChange={setVid2VidConfig}
+              onGenerate={(file) => handleVid2VidGenerate(file, vid2vidConfig)}
+              disabled={generating}
+              models={models}
+            />
+          </TabPanel>
+          <TabPanel id="img2vid" className={styles.tabPanel}>
+            <Img2VidControls
+              config={img2vidConfig}
+              onChange={setImg2VidConfig}
+              onGenerate={(file) => handleImg2VidGenerate(file, img2vidConfig)}
+              disabled={generating}
+              models={models}
+            />
+          </TabPanel>
+          <Preview
+            jobId={jobId}
+            status={status}
+            onCancel={generating ? handleCancel : undefined}
+            imageSize={imageSize}
+          />
         </div>
-      </header>
-      <main className={styles.main}>
-        {activeTab === "deforum" ? (
-          <Controls
-            config={config}
-            onChange={setConfig}
-            onGenerate={handleGenerate}
-            disabled={generating}
-            models={models}
-          />
-        ) : activeTab === "vid2vid" ? (
-          <Vid2VidControls
-            config={vid2vidConfig}
-            onChange={setVid2VidConfig}
-            onGenerate={handleVid2VidGenerate}
-            disabled={generating}
-            models={models}
-          />
-        ) : (
-          <Img2VidControls
-            config={img2vidConfig}
-            onChange={setImg2VidConfig}
-            onGenerate={handleImg2VidGenerate}
-            disabled={generating}
-            models={models}
-          />
-        )}
-        <Preview jobId={jobId} status={status} onCancel={generating ? handleCancel : undefined} imageSize={imageSize} />
-      </main>
+      </Tabs>
+
+      <Toast toast={toast} onDismiss={clearToast} />
     </div>
   );
 }
