@@ -69,7 +69,6 @@ class GenerateRequest(BaseModel):
     translate_y: float = Field(default=0.0, ge=-100.0, le=100.0)
     seed: Optional[int] = Field(default=None, ge=0, le=4294967295)
     fps: int = Field(default=12, ge=1, le=60)
-    color_coherence: bool = True
     use_deforum: bool = True
     model_id: str = "runwayml/stable-diffusion-v1-5"
     prompt_schedule: list[PromptKeyframeModel] = Field(default_factory=list)

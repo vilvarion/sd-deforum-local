@@ -226,14 +226,6 @@ export default function UnifiedControls({
         </div>
       )}
 
-      {mode !== "vid2vid" && config.use_deforum && (
-        <CheckboxField
-          label="Color Coherence"
-          isSelected={config.color_coherence}
-          onChange={(v) => setConfig("color_coherence", v)}
-        />
-      )}
-
       <div className={styles.field}>
         <div className={styles.seedRow}>
           <label className={styles.fieldLabel}>Seed</label>

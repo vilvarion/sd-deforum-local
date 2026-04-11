@@ -26,7 +26,6 @@ export interface GenerationConfig {
   translate_y: number;
   seed: number | null;
   fps: number;
-  color_coherence: boolean;
   use_deforum: boolean;
   model_id: string;
   prompt_schedule: PromptKeyframe[];
@@ -115,7 +114,6 @@ export const defaultConfig: GenerationConfig = {
   translate_y: 0,
   seed: null,
   fps: 12,
-  color_coherence: true,
   use_deforum: true,
   model_id: DEFAULT_MODEL_ID,
   prompt_schedule: [],

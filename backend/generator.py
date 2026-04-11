@@ -60,7 +60,6 @@ class GenerationConfig:
     translate_y: float = 0.0
     seed: Optional[int] = None
     fps: int = 12
-    color_coherence: bool = True
     use_deforum: bool = True
     model_id: str = DEFAULT_MODEL_ID
     prompt_schedule: list = field(default_factory=list)
@@ -701,7 +700,7 @@ class DeforumGenerator:
                         warped_np = cv2.addWeighted(warped_np, 1.15, _blur, -0.15, 0)
                         warped_np = np.clip(warped_np, 0, 255).astype(np.uint8)
 
-                    if config.color_coherence and reference_frame is not None:
+                    if reference_frame is not None:
                         warped_np = self._match_color(warped_np, reference_frame)
 
                     warped_pil = Image.fromarray(warped_np)
