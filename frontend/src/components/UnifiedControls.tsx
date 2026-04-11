@@ -235,8 +235,8 @@ export default function UnifiedControls({
       )}
 
       <div className={styles.field}>
-        <label className={styles.fieldLabel}>Seed</label>
         <div className={styles.seedRow}>
+          <label className={styles.fieldLabel}>Seed</label>
           <input
             type="number"
             value={mode !== "vid2vid" ? (config.seed ?? "") : (vid2vidConfig.seed ?? "")}

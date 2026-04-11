@@ -7,8 +7,17 @@
 
 /* === Design Tokens === */
 :root {
+  /* Color — accent */
+  --color-accent:         oklch(0.6709 0.1131 155.38);
+  --color-accent-hover:   oklch(from var(--color-accent) calc(l + 0.05) c h);
+  --color-accent-dim:     oklch(from var(--color-accent) calc(l - 0.1) c h);
+  --color-step-bar:       #6688aa;
+
   /* Color — backgrounds */
   --color-bg-base:        #111111;
+  --color-bg-invert:      oklch(from var(--color-accent) calc(l - 0.4) calc(c - 0.3) h);
+
+
   --color-bg-header:      #0d0d0d;
   --color-bg-input:       #1a1a1a;
   --color-bg-panel:       #161616;
@@ -22,7 +31,7 @@
 
   /* Color — borders */
   --color-border-subtle:  #222222;
-  --color-border-default: #333333;
+  --color-border-default: #556655;
   --color-border-focus:   #55aa77;
   --color-border-error:   #aa3333;
 
@@ -35,12 +44,6 @@
   --color-text-empty:     #555555;
   --color-text-error:     #ff8888;
   --color-text-label:     #999999;
-
-  /* Color — accent */
-  --color-accent:         #55aa77;
-  --color-accent-hover:   #55bb99;
-  --color-accent-dim:     #2a3a2e;
-  --color-step-bar:       #6688aa;
 
   /* Color — destructive */
   --color-danger:         #aa3333;

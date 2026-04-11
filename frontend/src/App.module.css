@@ -20,11 +20,21 @@
   overflow: hidden;
 }
 
+.tabNav {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-3);
+  z-index: 10;
+}
+
 .tabList {
   display: flex;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm, 0 2px 6px rgba(0, 0, 0, 0.15));
   flex-shrink: 0;
 }
 
@@ -66,6 +76,3 @@
   overflow: hidden;
 }
 
-.fullView .tabList {
-  max-width: var(--controls-panel-width);
-}

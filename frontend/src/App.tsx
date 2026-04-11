@@ -8,20 +8,9 @@ import UnifiedControls from "./components/UnifiedControls";
 import Preview from "./components/Preview";
 import Queue from "./components/Queue";
 import Gallery from "./components/Gallery";
+import Tabs, { Mode, GENERATION_MODES } from "./components/Tabs";
 import Toast from "./components/ui/Toast";
 import styles from "./App.module.css";
-
-type Mode = "deforum" | "img2vid" | "vid2vid" | "queue" | "gallery";
-
-const MODE_LABELS: Record<Mode, string> = {
-  deforum: "Deforum",
-  img2vid: "Img2Vid",
-  vid2vid: "Vid2Vid",
-  queue: "Queue",
-  gallery: "Gallery",
-};
-
-const GENERATION_MODES: ReadonlyArray<Mode> = ["deforum", "img2vid", "vid2vid"];
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("deforum");
@@ -38,29 +27,15 @@ export default function App() {
 
   const isGenerationMode = GENERATION_MODES.includes(mode);
 
-  const tabs = (
-    <div className={styles.tabList} role="tablist">
-      {(Object.keys(MODE_LABELS) as Mode[]).map((m) => (
-        <button
-          key={m}
-          role="tab"
-          aria-selected={mode === m}
-          className={`${styles.tab}${mode === m ? ` ${styles.tabSelected}` : ""}`}
-          onClick={() => setMode(m)}
-        >
-          {MODE_LABELS[m]}
-        </button>
-      ))}
-    </div>
-  );
-
   return (
     <div className={styles.root}>
+      <nav className={styles.tabNav}>
+        <Tabs mode={mode} onChange={setMode} />
+      </nav>
       <div className={styles.main}>
         {isGenerationMode ? (
           <>
             <div className={styles.sidebar}>
-              {tabs}
               <UnifiedControls
                 mode={mode as "deforum" | "img2vid" | "vid2vid"}
                 config={config}
@@ -83,7 +58,6 @@ export default function App() {
           </>
         ) : (
           <div className={styles.fullView}>
-            {tabs}
             {mode === "queue" && (
               <Queue
                 snapshot={queuePolling.snapshot}
