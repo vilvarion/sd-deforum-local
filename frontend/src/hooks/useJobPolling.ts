@@ -55,8 +55,14 @@ export function useJobPolling(): UseJobPollingResult {
       stopPolling();
       setJobId(id);
       jobIdRef.current = id;
-      setGenerating(true);
       setStatus(initialStatus);
+
+      const terminal =
+        initialStatus.status === "done" ||
+        initialStatus.status === "error" ||
+        initialStatus.status === "cancelled";
+      setGenerating(!terminal);
+      if (terminal) return;
 
       pollRef.current = window.setInterval(async () => {
         try {

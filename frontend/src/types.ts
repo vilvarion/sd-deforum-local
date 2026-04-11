@@ -34,6 +34,37 @@ export interface JobStatus {
   error_message: string;
 }
 
+export type GenerationMode = "deforum" | "img2vid" | "vid2vid";
+
+export interface QueueItem {
+  job_id: string;
+  mode: GenerationMode;
+  status: JobStatus["status"];
+  prompt: string;
+  created_at: string;
+  current_frame: number;
+  total_frames: number;
+}
+
+export interface QueueSnapshot {
+  queued: QueueItem[];
+  running: QueueItem | null;
+  recent: QueueItem[];
+}
+
+export interface GalleryItem {
+  job_id: string;
+  mode: GenerationMode;
+  status: JobStatus["status"];
+  created_at: string;
+  prompt: string;
+  width: number;
+  height: number;
+  num_frames: number;
+  has_video: boolean;
+  thumbnail_frame: number | null;
+}
+
 export interface Vid2VidConfig {
   prompt: string;
   negative_prompt: string;

@@ -72,8 +72,6 @@ class GenerateRequest(BaseModel):
 def generate(req: GenerateRequest):
     config = GenerationConfig(**req.model_dump())
     job_id = generator.submit_job(config)
-    if job_id is None:
-        raise HTTPException(status_code=409, detail="A job is already running")
     return {"job_id": job_id}
 
 
@@ -149,9 +147,6 @@ async def vid2vid(video: UploadFile = File(...), config_json: str = Form(...)):
         job_id = generator.submit_vid2vid_job(config, tmp_path)
     finally:
         os.unlink(tmp_path)
-
-    if job_id is None:
-        raise HTTPException(status_code=409, detail="A job is already running")
     return {"job_id": job_id}
 
 
@@ -176,9 +171,6 @@ async def img2vid(image: UploadFile = File(...), config_json: str = Form(...)):
         job_id = generator.submit_img2vid_job(config, tmp_path)
     finally:
         os.unlink(tmp_path)
-
-    if job_id is None:
-        raise HTTPException(status_code=409, detail="A job is already running")
     return {"job_id": job_id}
 
 
@@ -188,3 +180,20 @@ def job_config(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return asdict(job.config)
+
+
+@app.get("/api/queue")
+def queue_snapshot():
+    return generator.list_queue_snapshot()
+
+
+@app.get("/api/gallery")
+def gallery_list():
+    return generator.list_gallery()
+
+
+@app.delete("/api/gallery/{job_id}")
+def gallery_delete(job_id: str):
+    if not generator.delete_project(job_id):
+        raise HTTPException(status_code=404, detail="Project not found or still running")
+    return {"status": "deleted"}

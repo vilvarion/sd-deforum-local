@@ -29,29 +29,36 @@ cd frontend && npx tsc --noEmit
 Two independent processes communicating via REST:
 
 **Backend** (`backend/`): FastAPI. Two files:
-- `main.py` — API layer. 9 endpoints under `/api/`. Pydantic request validation. Loads model via FastAPI lifespan hook.
-- `generator.py` — All generation logic. `DeforumGenerator` class owns the SD pipeline and job state. Two config dataclasses: `GenerationConfig` (deforum + img2vid) and `Vid2VidConfig` (vid2vid). `Job.config` is `Union[GenerationConfig, Vid2VidConfig]`. Jobs run in background threads, one at a time (mutex-gated). Each job gets a UUID-based output directory under `backend/outputs/`. Supports loading local `.safetensors`/`.ckpt` files from `backend/models/` as well as HuggingFace model IDs.
+- `main.py` — API layer. Endpoints under `/api/`. Pydantic request validation. Loads model via FastAPI lifespan hook.
+- `generator.py` — All generation logic. `DeforumGenerator` class owns the SD pipeline and job state. Two config dataclasses: `GenerationConfig` (deforum + img2vid) and `Vid2VidConfig` (vid2vid). `Job.config` is `Union[GenerationConfig, Vid2VidConfig]`. A single long-lived worker thread consumes a FIFO queue (`deque` + `Condition`) — submits are always accepted and run sequentially. Each job gets a UUID-based output directory under `backend/outputs/` and writes a `project.json` metadata sidecar on every status transition. Supports loading local `.safetensors`/`.ckpt` files from `backend/models/` as well as HuggingFace model IDs.
 
 **Frontend** (`frontend/src/`): React + TypeScript + CSS Modules.
-- `App.tsx` — Root component. Owns generation config state, job lifecycle, tab switching (`deforum` | `vid2vid` | `img2vid`), and 1-second polling loop. Fetches available models from `/api/models` on mount.
-- `components/Controls.tsx` — Left panel for Deforum mode. All deforum config inputs. `SliderInput` helper for slider+number combos.
-- `components/Vid2VidControls.tsx` — Left panel for Vid2Vid mode. File upload, prompt, img2img settings, extraction FPS. Reuses `Controls.module.css`.
-- `components/Img2VidControls.tsx` — Left panel for Img2Vid mode. Image upload, deforum motion settings applied starting from an uploaded image.
-- `components/SizeSelect.tsx` — Shared width/height dropdown component (256/384/512/768).
-- `components/Preview.tsx` — Right panel. Progress bar during generation, video player when done, thumbnail strip. Shared across all modes.
-- `types.ts` — Shared TypeScript interfaces (`GenerationConfig`, `Vid2VidConfig`, `JobStatus`, `ModelInfo`) and defaults. These mirror the backend's Pydantic/dataclass models exactly.
+- `App.tsx` — Root component. Owns generation config state, job lifecycle, and tab switching (`deforum` | `img2vid` | `vid2vid` | `queue` | `gallery`). Fetches available models from `/api/models` on mount. Generation modes use the sidebar+Preview layout; queue/gallery take over the main area.
+- `components/UnifiedControls.tsx` — Single left-panel controls component that adapts to the active generation mode. Shares prompt/size/sampler fields across modes and swaps in mode-specific inputs (deforum motion sliders, file pickers for img2vid/vid2vid).
+- `components/Preview.tsx` — Right panel. Progress bar during generation, video player when done, thumbnail strip. Shared across all modes and works for historical jobs (driven purely by `jobId` + `JobStatus` props).
+- `components/Queue.tsx` — Running / queued / recent lists. Rows are clickable (loads the job into Preview) with a Cancel action.
+- `components/Gallery.tsx` — Grid of thumbnail cards loaded from `/api/gallery`. Click to replay in Preview, hover-reveal two-click delete.
+- `components/SizeSelect.tsx` — Shared width/height dropdown component.
+- `hooks/useJobPolling.ts` — Tracks the "current" job, polls `/api/jobs/{id}/status` at 1 Hz. Skips polling when the initial status is terminal (used for gallery replay).
+- `hooks/useGenerationActions.ts` — Submit handlers for the three generation endpoints.
+- `hooks/useQueuePolling.ts` — Polls `/api/queue` while the Queue tab is active; exposes `cancelItem`.
+- `hooks/useGallery.ts` — Fetches `/api/gallery` on tab open; exposes `refresh` and `deleteItem`.
+- `types.ts` — Shared TypeScript interfaces (`GenerationConfig`, `Vid2VidConfig`, `JobStatus`, `QueueItem`, `QueueSnapshot`, `GalleryItem`, `ModelInfo`) and defaults. These mirror the backend's Pydantic/dataclass models exactly.
 - `defaults.ts` — Default positive/negative prompt strings.
 
 **API endpoints:**
 - `GET /api/models` — List available models (HuggingFace + local files)
-- `POST /api/generate` — Start a deforum generation job
-- `POST /api/vid2vid` — Start a vid2vid job (multipart: video file + JSON config)
-- `POST /api/img2vid` — Start an img2vid job (multipart: image file + JSON config)
+- `POST /api/generate` — Enqueue a deforum generation job
+- `POST /api/vid2vid` — Enqueue a vid2vid job (multipart: video file + JSON config)
+- `POST /api/img2vid` — Enqueue an img2vid job (multipart: image file + JSON config)
 - `GET /api/jobs/{job_id}/status` — Poll job progress
-- `POST /api/jobs/{job_id}/cancel` — Cancel a running job
-- `GET /api/jobs/{job_id}/frames/{frame_number}` — Fetch individual frame PNG
-- `GET /api/jobs/{job_id}/video` — Download final MP4
+- `POST /api/jobs/{job_id}/cancel` — Cancel a queued or running job
+- `GET /api/jobs/{job_id}/frames/{frame_number}` — Fetch individual frame PNG (filesystem-backed; works for historical jobs)
+- `GET /api/jobs/{job_id}/video` — Download final MP4 (filesystem-backed)
 - `GET /api/jobs/{job_id}/config` — Retrieve the config used for a job
+- `GET /api/queue` — Current queue snapshot: `{ queued, running, recent }`
+- `GET /api/gallery` — List past projects from per-folder `project.json` metadata, newest first
+- `DELETE /api/gallery/{job_id}` — Delete a project's output folder (refuses if the job is currently running)
 
 **Deforum pipeline** (in `generator.py`, `_run_job`):
 1. Frame 0: txt2img from prompt (or img2img from uploaded image in img2vid mode)
@@ -71,7 +78,9 @@ All pipelines (txt2img, img2img) share the same model weights loaded once at sta
 ## Key Constraints
 
 - **MPS + float32 only**: float16 VAE decode on MPS produces NaN → black frames. The entire pipeline runs in float32.
-- **Single job at a time**: POST endpoints return 409 if busy. No job queue. All modes share the same mutex.
-- **In-memory job tracking**: Jobs dict lives in the generator instance. No persistence across restarts.
+- **Serial worker with FIFO queue**: A single worker thread processes one job at a time. Submits are always accepted and queued; POST endpoints never return 409. All modes share the same queue.
+- **In-memory queue + job tracking**: The queue and `jobs` dict live in the generator instance and are lost on restart. Past projects survive via `outputs/{job_id}/project.json` and are discoverable through `/api/gallery`.
+- **Per-project metadata sidecar**: `project.json` is rewritten on every status transition (QUEUED → RUNNING → DONE/ERROR/CANCELLED) and contains the config snapshot, mode, timestamps, and error message. Gallery listing scans for these files; folders without one are silently skipped (backwards compatible with pre-queue outputs).
+- **Filesystem-backed frame/video lookup**: `get_frame_path` / `get_video_path` validate `job_id` against `^[a-f0-9]{12}$` and resolve directly from `outputs/`, so historical projects play back even after a restart clears in-memory state.
 - **NumPy pinned to 1.26.4**: Required by kokoro dependency in the host environment.
 - **Frames served individually**: Frontend fetches each frame by number as it becomes available, enabling live preview during generation.

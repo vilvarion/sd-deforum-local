@@ -1,11 +1,15 @@
+import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
 import subprocess
 import math
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Union
 
@@ -72,6 +76,7 @@ class Vid2VidConfig:
 class Job:
     job_id: str
     config: Union[GenerationConfig, Vid2VidConfig]
+    mode: str = "deforum"  # deforum | img2vid | vid2vid
     status: JobStatus = JobStatus.QUEUED
     current_frame: int = 0
     total_frames: int = 0
@@ -79,7 +84,17 @@ class Job:
     total_steps: int = 0
     error_message: str = ""
     output_dir: str = ""
+    created_at: str = ""
     _cancel_requested: bool = field(default=False, repr=False)
+    _init_image_path: Optional[str] = field(default=None, repr=False)
+    _video_path: Optional[str] = field(default=None, repr=False)
+
+
+JOB_ID_RE = re.compile(r"^[a-f0-9]{12}$")
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 class DeforumGenerator:
@@ -89,8 +104,12 @@ class DeforumGenerator:
         os.makedirs(output_root, exist_ok=True)
         os.makedirs(models_dir, exist_ok=True)
         self.jobs: dict[str, Job] = {}
-        self._busy = False
         self._lock = threading.Lock()
+        self._queue_cond = threading.Condition(self._lock)
+        self._queue: deque[str] = deque()
+        self._current_job_id: Optional[str] = None
+        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker_thread.start()
         self._txt2img_pipe: Optional[StableDiffusionPipeline] = None
         self._img2img_pipe: Optional[StableDiffusionImg2ImgPipeline] = None
         self._current_model_id: Optional[str] = None
@@ -238,40 +257,34 @@ class DeforumGenerator:
             return callback_kwargs
         return callback
 
-    @property
-    def is_busy(self) -> bool:
-        return self._busy
+    def _new_job_id(self) -> str:
+        return uuid.uuid4().hex[:12]
 
-    def submit_job(self, config: GenerationConfig) -> Optional[str]:
-        with self._lock:
-            if self._busy:
-                return None
-            self._busy = True
+    def _enqueue(self, job: Job) -> None:
+        with self._queue_cond:
+            self.jobs[job.job_id] = job
+            self._queue.append(job.job_id)
+            self._queue_cond.notify_all()
 
-        job_id = uuid.uuid4().hex[:12]
+    def submit_job(self, config: GenerationConfig) -> str:
+        job_id = self._new_job_id()
         output_dir = os.path.join(self.output_root, job_id)
         os.makedirs(output_dir, exist_ok=True)
-
         job = Job(
             job_id=job_id,
             config=config,
+            mode="deforum",
             status=JobStatus.QUEUED,
             total_frames=config.num_frames,
             output_dir=output_dir,
+            created_at=_utcnow_iso(),
         )
-        self.jobs[job_id] = job
-
-        thread = threading.Thread(target=self._run_job, args=(job,), daemon=True)
-        thread.start()
+        self._write_project_json(job)
+        self._enqueue(job)
         return job_id
 
-    def submit_img2vid_job(self, config: GenerationConfig, image_path: str) -> Optional[str]:
-        with self._lock:
-            if self._busy:
-                return None
-            self._busy = True
-
-        job_id = uuid.uuid4().hex[:12]
+    def submit_img2vid_job(self, config: GenerationConfig, image_path: str) -> str:
+        job_id = self._new_job_id()
         output_dir = os.path.join(self.output_root, job_id)
         os.makedirs(output_dir, exist_ok=True)
 
@@ -281,43 +294,212 @@ class DeforumGenerator:
         job = Job(
             job_id=job_id,
             config=config,
+            mode="img2vid",
             status=JobStatus.QUEUED,
             total_frames=config.num_frames,
             output_dir=output_dir,
+            created_at=_utcnow_iso(),
+            _init_image_path=dest_image,
         )
-        self.jobs[job_id] = job
-
-        thread = threading.Thread(target=self._run_job, args=(job,), kwargs={"init_image_path": dest_image}, daemon=True)
-        thread.start()
+        self._write_project_json(job)
+        self._enqueue(job)
         return job_id
 
+    def submit_vid2vid_job(self, config: Vid2VidConfig, video_path: str) -> str:
+        job_id = self._new_job_id()
+        output_dir = os.path.join(self.output_root, job_id)
+        os.makedirs(output_dir, exist_ok=True)
+
+        dest_video = os.path.join(output_dir, "input_video" + os.path.splitext(video_path)[1])
+        shutil.copy2(video_path, dest_video)
+
+        job = Job(
+            job_id=job_id,
+            config=config,
+            mode="vid2vid",
+            status=JobStatus.QUEUED,
+            total_frames=0,
+            output_dir=output_dir,
+            created_at=_utcnow_iso(),
+            _video_path=dest_video,
+        )
+        self._write_project_json(job)
+        self._enqueue(job)
+        return job_id
+
+    def _worker_loop(self) -> None:
+        while True:
+            with self._queue_cond:
+                while not self._queue:
+                    self._queue_cond.wait()
+                job_id = self._queue.popleft()
+                job = self.jobs.get(job_id)
+                if job is None:
+                    continue
+                if job._cancel_requested:
+                    job.status = JobStatus.CANCELLED
+                    self._write_project_json(job)
+                    continue
+                self._current_job_id = job_id
+
+            try:
+                if job.mode == "vid2vid":
+                    self._run_vid2vid_job(job, job._video_path or "")
+                else:
+                    self._run_job(job, init_image_path=job._init_image_path)
+            except Exception:
+                logger.exception("Worker dispatch failed for job %s", job_id)
+            finally:
+                with self._queue_cond:
+                    self._current_job_id = None
+
     def cancel_job(self, job_id: str) -> bool:
-        job = self.jobs.get(job_id)
-        if not job or job.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
-            return False
-        job._cancel_requested = True
+        with self._queue_cond:
+            job = self.jobs.get(job_id)
+            if not job or job.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
+                return False
+            job._cancel_requested = True
+            if job.status == JobStatus.QUEUED:
+                try:
+                    self._queue.remove(job_id)
+                except ValueError:
+                    pass
+                job.status = JobStatus.CANCELLED
+                self._write_project_json(job)
         return True
 
     def get_job(self, job_id: str) -> Optional[Job]:
         return self.jobs.get(job_id)
 
-    def get_frame_path(self, job_id: str, frame_number: int) -> Optional[str]:
-        job = self.jobs.get(job_id)
-        if not job:
+    def _project_dir(self, job_id: str) -> Optional[str]:
+        if not JOB_ID_RE.match(job_id):
             return None
-        path = os.path.join(job.output_dir, f"frame_{frame_number:04d}.png")
-        if os.path.exists(path):
-            return path
-        return None
+        path = os.path.join(self.output_root, job_id)
+        return path if os.path.isdir(path) else None
+
+    def get_frame_path(self, job_id: str, frame_number: int) -> Optional[str]:
+        project = self._project_dir(job_id)
+        if not project:
+            return None
+        path = os.path.join(project, f"frame_{frame_number:04d}.png")
+        return path if os.path.exists(path) else None
 
     def get_video_path(self, job_id: str) -> Optional[str]:
-        job = self.jobs.get(job_id)
-        if not job or job.status != JobStatus.DONE:
+        project = self._project_dir(job_id)
+        if not project:
             return None
-        path = os.path.join(job.output_dir, "output.mp4")
-        if os.path.exists(path):
-            return path
-        return None
+        path = os.path.join(project, "output.mp4")
+        return path if os.path.exists(path) else None
+
+    def _write_project_json(self, job: Job) -> None:
+        try:
+            data = {
+                "job_id": job.job_id,
+                "mode": job.mode,
+                "status": job.status.value,
+                "created_at": job.created_at or _utcnow_iso(),
+                "config": asdict(job.config),
+                "total_frames": job.total_frames,
+                "has_video": os.path.exists(os.path.join(job.output_dir, "output.mp4")),
+                "error_message": job.error_message,
+            }
+            with open(os.path.join(job.output_dir, "project.json"), "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            logger.exception("Failed to write project.json for %s", job.job_id)
+
+    def list_queue_snapshot(self) -> dict:
+        def item(j: Job) -> dict:
+            prompt = getattr(j.config, "prompt", "") or ""
+            return {
+                "job_id": j.job_id,
+                "mode": j.mode,
+                "status": j.status.value,
+                "prompt": prompt,
+                "created_at": j.created_at,
+                "current_frame": j.current_frame,
+                "total_frames": j.total_frames,
+            }
+
+        with self._queue_cond:
+            queued = [item(self.jobs[jid]) for jid in self._queue if jid in self.jobs]
+            running_id = self._current_job_id
+            running = item(self.jobs[running_id]) if running_id and running_id in self.jobs else None
+            recent = [
+                item(j)
+                for j in self.jobs.values()
+                if j.status in (JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELLED)
+            ]
+        recent.sort(key=lambda x: x["created_at"], reverse=True)
+        return {"queued": queued, "running": running, "recent": recent[:10]}
+
+    def list_gallery(self) -> list[dict]:
+        items: list[dict] = []
+        if not os.path.isdir(self.output_root):
+            return items
+        for entry in os.listdir(self.output_root):
+            if not JOB_ID_RE.match(entry):
+                continue
+            meta_path = os.path.join(self.output_root, entry, "project.json")
+            if not os.path.exists(meta_path):
+                continue
+            try:
+                with open(meta_path, "r") as f:
+                    meta = json.load(f)
+            except Exception:
+                continue
+            cfg = meta.get("config", {}) or {}
+            width = int(cfg.get("width", 0) or 0)
+            height = int(cfg.get("height", 0) or 0)
+            num_frames = int(cfg.get("num_frames") or meta.get("total_frames") or 0)
+            has_video = bool(meta.get("has_video")) and os.path.exists(
+                os.path.join(self.output_root, entry, "output.mp4")
+            )
+            thumb_frame = self._find_thumbnail_frame(entry)
+            items.append({
+                "job_id": entry,
+                "mode": meta.get("mode", "deforum"),
+                "status": meta.get("status", "done"),
+                "created_at": meta.get("created_at", ""),
+                "prompt": (cfg.get("prompt") or "")[:200],
+                "width": width,
+                "height": height,
+                "num_frames": num_frames,
+                "has_video": has_video,
+                "thumbnail_frame": thumb_frame,
+            })
+        items.sort(key=lambda x: x["created_at"], reverse=True)
+        return items
+
+    def _find_thumbnail_frame(self, job_id: str) -> Optional[int]:
+        project = os.path.join(self.output_root, job_id)
+        frames = sorted(globmod.glob(os.path.join(project, "frame_*.png")))
+        if not frames:
+            return None
+        # pick the middle frame for a more representative thumbnail
+        mid = frames[len(frames) // 2]
+        name = os.path.basename(mid)
+        try:
+            return int(name[len("frame_"):-len(".png")])
+        except ValueError:
+            return 0
+
+    def delete_project(self, job_id: str) -> bool:
+        project = self._project_dir(job_id)
+        if not project:
+            return False
+        with self._queue_cond:
+            job = self.jobs.get(job_id)
+            if job and job.status == JobStatus.RUNNING:
+                return False
+            if job and job.status == JobStatus.QUEUED:
+                try:
+                    self._queue.remove(job_id)
+                except ValueError:
+                    pass
+            self.jobs.pop(job_id, None)
+        shutil.rmtree(project, ignore_errors=True)
+        return True
 
     @staticmethod
     def _cover_crop(image: Image.Image, target_w: int, target_h: int) -> Image.Image:
@@ -364,6 +546,7 @@ class DeforumGenerator:
     def _run_job(self, job: Job, init_image_path: Optional[str] = None):
         try:
             job.status = JobStatus.RUNNING
+            self._write_project_json(job)
             config = job.config
             self.load_model(config.model_id)
             seed = config.seed if config.seed is not None else int(torch.randint(0, 2**32 - 1, (1,)).item())
@@ -380,6 +563,7 @@ class DeforumGenerator:
             for frame_idx in range(config.num_frames):
                 if job._cancel_requested:
                     job.status = JobStatus.CANCELLED
+                    self._write_project_json(job)
                     return
                 job.current_frame = frame_idx
 
@@ -486,14 +670,13 @@ class DeforumGenerator:
             )
 
             job.status = JobStatus.DONE
+            self._write_project_json(job)
 
         except Exception as e:
             job.status = JobStatus.ERROR
             job.error_message = str(e)
             logger.exception("Job %s failed", job.job_id)
-        finally:
-            with self._lock:
-                self._busy = False
+            self._write_project_json(job)
 
     def _extract_frames(self, video_path: str, output_dir: str, fps: int, width: int, height: int) -> int:
         extracted_dir = os.path.join(output_dir, "extracted")
@@ -516,6 +699,7 @@ class DeforumGenerator:
     def _run_vid2vid_job(self, job: Job, video_path: str):
         try:
             job.status = JobStatus.RUNNING
+            self._write_project_json(job)
             config: Vid2VidConfig = job.config  # type: ignore[assignment]
             self.load_model(config.model_id)
 
@@ -532,6 +716,7 @@ class DeforumGenerator:
             for i in range(frame_count):
                 if job._cancel_requested:
                     job.status = JobStatus.CANCELLED
+                    self._write_project_json(job)
                     return
                 job.current_frame = i
 
@@ -572,38 +757,10 @@ class DeforumGenerator:
             )
 
             job.status = JobStatus.DONE
+            self._write_project_json(job)
 
         except Exception as e:
             job.status = JobStatus.ERROR
             job.error_message = str(e)
             logger.exception("Job %s failed", job.job_id)
-        finally:
-            with self._lock:
-                self._busy = False
-
-    def submit_vid2vid_job(self, config: Vid2VidConfig, video_path: str) -> Optional[str]:
-        with self._lock:
-            if self._busy:
-                return None
-            self._busy = True
-
-        job_id = uuid.uuid4().hex[:12]
-        output_dir = os.path.join(self.output_root, job_id)
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Copy uploaded video into job directory
-        dest_video = os.path.join(output_dir, "input_video" + os.path.splitext(video_path)[1])
-        shutil.copy2(video_path, dest_video)
-
-        job = Job(
-            job_id=job_id,
-            config=config,
-            status=JobStatus.QUEUED,
-            total_frames=0,
-            output_dir=output_dir,
-        )
-        self.jobs[job_id] = job
-
-        thread = threading.Thread(target=self._run_vid2vid_job, args=(job, dest_video), daemon=True)
-        thread.start()
-        return job_id
+            self._write_project_json(job)
