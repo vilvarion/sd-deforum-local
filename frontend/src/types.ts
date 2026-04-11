@@ -5,6 +5,12 @@ export interface ModelInfo {
   name: string;
 }
 
+export interface PromptKeyframe {
+  frame: number;
+  prompt: string;
+  blend_frames: number;
+}
+
 export interface GenerationConfig {
   prompt: string;
   negative_prompt: string;
@@ -23,6 +29,7 @@ export interface GenerationConfig {
   color_coherence: boolean;
   use_deforum: boolean;
   model_id: string;
+  prompt_schedule: PromptKeyframe[];
 }
 
 export interface JobStatus {
@@ -111,4 +118,5 @@ export const defaultConfig: GenerationConfig = {
   color_coherence: true,
   use_deforum: true,
   model_id: DEFAULT_MODEL_ID,
+  prompt_schedule: [],
 };

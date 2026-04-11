@@ -9,9 +9,9 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from generator import DeforumGenerator, GenerationConfig, Vid2VidConfig
+from generator import DeforumGenerator, GenerationConfig, PromptKeyframe, Vid2VidConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,6 +48,12 @@ def list_models():
     return generator.list_models()
 
 
+class PromptKeyframeModel(BaseModel):
+    frame: int = Field(ge=1, le=1000)
+    prompt: str
+    blend_frames: int = Field(default=8, ge=0, le=120)
+
+
 class GenerateRequest(BaseModel):
     prompt: str = ""
     negative_prompt: str = ""
@@ -66,11 +72,43 @@ class GenerateRequest(BaseModel):
     color_coherence: bool = True
     use_deforum: bool = True
     model_id: str = "runwayml/stable-diffusion-v1-5"
+    prompt_schedule: list[PromptKeyframeModel] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_schedule(self):
+        if not self.prompt_schedule:
+            return self
+        seen_frames = set()
+        last_frame = 0
+        for kf in sorted(self.prompt_schedule, key=lambda k: k.frame):
+            if kf.frame in seen_frames:
+                raise ValueError(f"duplicate keyframe at frame {kf.frame}")
+            if kf.frame >= self.num_frames:
+                raise ValueError(
+                    f"keyframe frame {kf.frame} must be < num_frames ({self.num_frames})"
+                )
+            if not kf.prompt.strip():
+                raise ValueError(f"keyframe at frame {kf.frame} has empty prompt")
+            max_blend = kf.frame - last_frame
+            if kf.blend_frames > max_blend:
+                raise ValueError(
+                    f"keyframe at frame {kf.frame}: blend_frames ({kf.blend_frames}) "
+                    f"exceeds gap to previous keyframe ({max_blend})"
+                )
+            seen_frames.add(kf.frame)
+            last_frame = kf.frame
+        return self
+
+
+def _to_generation_config(req: GenerateRequest) -> GenerationConfig:
+    data = req.model_dump()
+    schedule = [PromptKeyframe(**kf) for kf in data.pop("prompt_schedule", [])]
+    return GenerationConfig(**data, prompt_schedule=schedule)
 
 
 @app.post("/api/generate")
 def generate(req: GenerateRequest):
-    config = GenerationConfig(**req.model_dump())
+    config = _to_generation_config(req)
     job_id = generator.submit_job(config)
     return {"job_id": job_id}
 
@@ -160,7 +198,7 @@ async def img2vid(image: UploadFile = File(...), config_json: str = Form(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid config: {e}")
 
-    config = GenerationConfig(**req.model_dump())
+    config = _to_generation_config(req)
 
     suffix = os.path.splitext(image.filename or "image.png")[1] or ".png"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:

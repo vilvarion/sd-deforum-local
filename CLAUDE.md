@@ -30,11 +30,12 @@ Two independent processes communicating via REST:
 
 **Backend** (`backend/`): FastAPI. Two files:
 - `main.py` — API layer. Endpoints under `/api/`. Pydantic request validation. Loads model via FastAPI lifespan hook.
-- `generator.py` — All generation logic. `DeforumGenerator` class owns the SD pipeline and job state. Two config dataclasses: `GenerationConfig` (deforum + img2vid) and `Vid2VidConfig` (vid2vid). `Job.config` is `Union[GenerationConfig, Vid2VidConfig]`. A single long-lived worker thread consumes a FIFO queue (`deque` + `Condition`) — submits are always accepted and run sequentially. Each job gets a UUID-based output directory under `backend/outputs/` and writes a `project.json` metadata sidecar on every status transition. Supports loading local `.safetensors`/`.ckpt` files from `backend/models/` as well as HuggingFace model IDs.
+- `generator.py` — All generation logic. `DeforumGenerator` class owns the SD pipeline and job state. Config dataclasses: `GenerationConfig` (deforum + img2vid), `Vid2VidConfig` (vid2vid), and `PromptKeyframe` (entries in `GenerationConfig.prompt_schedule`). `Job.config` is `Union[GenerationConfig, Vid2VidConfig]`. A single long-lived worker thread consumes a FIFO queue (`deque` + `Condition`) — submits are always accepted and run sequentially. Each job gets a UUID-based output directory under `backend/outputs/` and writes a `project.json` metadata sidecar on every status transition. Supports loading local `.safetensors`/`.ckpt` files from `backend/models/` as well as HuggingFace model IDs.
 
 **Frontend** (`frontend/src/`): React + TypeScript + CSS Modules.
 - `App.tsx` — Root component. Owns generation config state, job lifecycle, and tab switching (`deforum` | `img2vid` | `vid2vid` | `queue` | `gallery`). Fetches available models from `/api/models` on mount. Generation modes use the sidebar+Preview layout; queue/gallery take over the main area.
-- `components/UnifiedControls.tsx` — Single left-panel controls component that adapts to the active generation mode. Shares prompt/size/sampler fields across modes and swaps in mode-specific inputs (deforum motion sliders, file pickers for img2vid/vid2vid).
+- `components/UnifiedControls.tsx` — Single left-panel controls component that adapts to the active generation mode. Shares prompt/size/sampler fields across modes and swaps in mode-specific inputs (deforum motion sliders, file pickers for img2vid/vid2vid). Mounts `PromptSchedule` under the main prompt when `mode === "deforum"`.
+- `components/PromptSchedule.tsx` — Deforum-only keyframed-prompt editor. Rows of `[frame] [prompt textarea] [blend: cut/4f/8f/16f] [×]` plus a frame ruler with pins and translucent blend bands. Exports `validatePromptSchedule` — mirrors the backend validator and gates the Generate button.
 - `components/Preview.tsx` — Right panel. Progress bar during generation, video player when done, thumbnail strip. Shared across all modes and works for historical jobs (driven purely by `jobId` + `JobStatus` props).
 - `components/Queue.tsx` — Running / queued / recent lists. Rows are clickable (loads the job into Preview) with a Cancel action.
 - `components/Gallery.tsx` — Grid of thumbnail cards loaded from `/api/gallery`. Click to replay in Preview, hover-reveal two-click delete.
@@ -43,7 +44,7 @@ Two independent processes communicating via REST:
 - `hooks/useGenerationActions.ts` — Submit handlers for the three generation endpoints.
 - `hooks/useQueuePolling.ts` — Polls `/api/queue` while the Queue tab is active; exposes `cancelItem`.
 - `hooks/useGallery.ts` — Fetches `/api/gallery` on tab open; exposes `refresh` and `deleteItem`.
-- `types.ts` — Shared TypeScript interfaces (`GenerationConfig`, `Vid2VidConfig`, `JobStatus`, `QueueItem`, `QueueSnapshot`, `GalleryItem`, `ModelInfo`) and defaults. These mirror the backend's Pydantic/dataclass models exactly.
+- `types.ts` — Shared TypeScript interfaces (`GenerationConfig`, `Vid2VidConfig`, `JobStatus`, `QueueItem`, `QueueSnapshot`, `GalleryItem`, `ModelInfo`, `PromptKeyframe`) and defaults. These mirror the backend's Pydantic/dataclass models exactly.
 - `defaults.ts` — Default positive/negative prompt strings.
 
 **API endpoints:**
@@ -61,11 +62,12 @@ Two independent processes communicating via REST:
 - `DELETE /api/gallery/{job_id}` — Delete a project's output folder (refuses if the job is currently running)
 
 **Deforum pipeline** (in `generator.py`, `_run_job`):
-1. Frame 0: txt2img from prompt (or img2img from uploaded image in img2vid mode)
-2. Frames 1+: warp previous frame (affine: zoom/rotate/translate via OpenCV) → img2img
-3. Optional LAB-space color coherence matching against frame 0
-4. After all frames: ffmpeg subprocess stitches PNGs into MP4 (H.264, CRF 18)
-5. When `use_deforum` is false, each frame is independent txt2img (no warping)
+1. Before the frame loop, `_build_prompt_schedule` pre-computes per-frame `(prompt_embeds, negative_prompt_embeds)` by encoding each unique keyframe prompt once via `pipe.encode_prompt` and cosine-easing linear interpolation between adjacent keyframes across each keyframe's `blend_frames` window. With an empty `prompt_schedule`, every frame reuses the main prompt's embeds.
+2. Frame 0: txt2img from the frame-0 embeds (or img2img from uploaded image in img2vid mode)
+3. Frames 1+: warp previous frame (affine: zoom/rotate/translate via OpenCV) → img2img, using that frame's slot from the schedule
+4. Optional LAB-space color coherence matching against frame 0
+5. After all frames: ffmpeg subprocess stitches PNGs into MP4 (H.264, CRF 18)
+6. When `use_deforum` is false, each frame is independent txt2img (no warping), still driven by the schedule
 
 **Vid2Vid pipeline** (in `generator.py`, `_run_vid2vid_job`):
 1. Extract frames from uploaded video via ffmpeg (scale+pad to target size, preserving aspect ratio)

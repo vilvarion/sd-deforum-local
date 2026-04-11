@@ -38,6 +38,13 @@ DEFAULT_MODEL_ID = "runwayml/stable-diffusion-v1-5"
 
 
 @dataclass
+class PromptKeyframe:
+    frame: int = 0
+    prompt: str = ""
+    blend_frames: int = 8
+
+
+@dataclass
 class GenerationConfig:
     prompt: str = ""
     negative_prompt: str = ""
@@ -56,6 +63,7 @@ class GenerationConfig:
     color_coherence: bool = True
     use_deforum: bool = True
     model_id: str = DEFAULT_MODEL_ID
+    prompt_schedule: list = field(default_factory=list)
 
 
 @dataclass
@@ -543,6 +551,72 @@ class DeforumGenerator:
         src_lab = np.clip(src_lab, 0, 255).astype(np.uint8)
         return cv2.cvtColor(src_lab, cv2.COLOR_LAB2RGB)
 
+    def _build_prompt_schedule(
+        self, config: GenerationConfig
+    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """Return per-frame (prompt_embeds, negative_prompt_embeds) with cosine-eased blending."""
+        assert self._txt2img_pipe is not None
+
+        keyframes: list[tuple[int, str, int]] = [(0, config.prompt, 0)]
+        for kf in config.prompt_schedule:
+            if isinstance(kf, dict):
+                frame = int(kf["frame"])
+                text = kf["prompt"]
+                blend = int(kf.get("blend_frames", 8))
+            else:
+                frame = int(kf.frame)
+                text = kf.prompt
+                blend = int(kf.blend_frames)
+            if 0 < frame < config.num_frames:
+                keyframes.append((frame, text, blend))
+        keyframes.sort(key=lambda k: k[0])
+
+        unique_prompts: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
+        neg = config.negative_prompt or None
+        for _, text, _ in keyframes:
+            if text not in unique_prompts:
+                pos_e, neg_e = self._txt2img_pipe.encode_prompt(
+                    prompt=text,
+                    device=self._device,
+                    num_images_per_prompt=1,
+                    do_classifier_free_guidance=True,
+                    negative_prompt=neg,
+                )
+                unique_prompts[text] = (pos_e, neg_e)
+
+        schedule: list[tuple[torch.Tensor, torch.Tensor]] = []
+        for i in range(config.num_frames):
+            # Find the keyframe segment this frame belongs to.
+            k_prev = keyframes[0]
+            k_next: Optional[tuple[int, str, int]] = None
+            for k in keyframes[1:]:
+                if k[0] > i:
+                    k_next = k
+                    break
+                k_prev = k
+
+            prev_embeds = unique_prompts[k_prev[1]]
+            if k_next is None:
+                schedule.append(prev_embeds)
+                continue
+
+            next_embeds = unique_prompts[k_next[1]]
+            next_frame, _, blend = k_next
+            blend_start = next_frame - blend
+            if blend <= 0 or i < blend_start:
+                schedule.append(prev_embeds)
+                continue
+
+            t_lin = (i - blend_start) / blend
+            t_lin = max(0.0, min(1.0, t_lin))
+            t = 0.5 * (1.0 - math.cos(math.pi * t_lin))
+
+            pos = (1 - t) * prev_embeds[0] + t * next_embeds[0]
+            neg_e = (1 - t) * prev_embeds[1] + t * next_embeds[1]
+            schedule.append((pos, neg_e))
+
+        return schedule
+
     def _run_job(self, job: Job, init_image_path: Optional[str] = None):
         try:
             job.status = JobStatus.RUNNING
@@ -560,6 +634,8 @@ class DeforumGenerator:
                 source_image = Image.open(init_image_path).convert("RGB")
                 source_image = self._cover_crop(source_image, config.width, config.height)
 
+            prompt_schedule = self._build_prompt_schedule(config)
+
             for frame_idx in range(config.num_frames):
                 if job._cancel_requested:
                     job.status = JobStatus.CANCELLED
@@ -569,14 +645,15 @@ class DeforumGenerator:
 
                 img2img_steps = max(1, round(config.denoising_strength * config.steps))
                 step_cb = self._make_step_callback(job)
+                pos_embeds, neg_embeds = prompt_schedule[frame_idx]
 
                 if init_image_path is not None and not config.use_deforum:
                     # Non-deforum img2vid: every frame uses the source image as base
                     job.current_step = 0
                     job.total_steps = img2img_steps
                     result = self._img2img_pipe(
-                        prompt=config.prompt,
-                        negative_prompt=config.negative_prompt or None,
+                        prompt_embeds=pos_embeds,
+                        negative_prompt_embeds=neg_embeds,
                         image=source_image,
                         strength=config.denoising_strength,
                         num_inference_steps=config.steps,
@@ -590,8 +667,8 @@ class DeforumGenerator:
                         job.current_step = 0
                         job.total_steps = img2img_steps
                         result = self._img2img_pipe(
-                            prompt=config.prompt,
-                            negative_prompt=config.negative_prompt or None,
+                            prompt_embeds=pos_embeds,
+                            negative_prompt_embeds=neg_embeds,
                             image=source_image,
                             strength=config.denoising_strength,
                             num_inference_steps=config.steps,
@@ -604,8 +681,8 @@ class DeforumGenerator:
                         job.current_step = 0
                         job.total_steps = config.steps
                         result = self._txt2img_pipe(
-                            prompt=config.prompt,
-                            negative_prompt=config.negative_prompt or None,
+                            prompt_embeds=pos_embeds,
+                            negative_prompt_embeds=neg_embeds,
                             width=config.width,
                             height=config.height,
                             num_inference_steps=config.steps,
@@ -632,8 +709,8 @@ class DeforumGenerator:
                     job.current_step = 0
                     job.total_steps = img2img_steps
                     result = self._img2img_pipe(
-                        prompt=config.prompt,
-                        negative_prompt=config.negative_prompt or None,
+                        prompt_embeds=pos_embeds,
+                        negative_prompt_embeds=neg_embeds,
                         image=warped_pil,
                         strength=config.denoising_strength,
                         num_inference_steps=config.steps,

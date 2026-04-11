@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "react-aria-components";
-import { GenerationConfig, Vid2VidConfig, ModelInfo } from "../types";
+import { GenerationConfig, PromptKeyframe, Vid2VidConfig, ModelInfo } from "../types";
 import SliderField from "./ui/SliderField";
 import SelectField from "./ui/SelectField";
 import CheckboxField from "./ui/CheckboxField";
 import FileTriggerField from "./ui/FileTriggerField";
 import SizeSelect from "./SizeSelect";
+import PromptSchedule, { validatePromptSchedule } from "./PromptSchedule";
 import styles from "./DeforumControls.module.css";
 
 type Mode = "deforum" | "img2vid" | "vid2vid";
@@ -90,10 +91,13 @@ export default function UnifiedControls({
   const modelItems = models.map((m) => ({ id: m.id, label: m.name }));
   const activePrompt = mode !== "vid2vid" ? config.prompt : vid2vidConfig.prompt;
   const needsFile = mode !== "deforum";
+  const scheduleValid =
+    mode !== "deforum" || validatePromptSchedule(config.prompt_schedule, config.num_frames);
   const isDisabled =
     disabled ||
     !activePrompt.trim() ||
-    (needsFile && !selectedFile);
+    (needsFile && !selectedFile) ||
+    !scheduleValid;
 
   const btnLabel = disabled
     ? mode === "vid2vid" ? "Processing..." : "Generating..."
@@ -130,6 +134,17 @@ export default function UnifiedControls({
           aria-label="Prompt"
         />
       </div>
+
+      {mode === "deforum" && (
+        <PromptSchedule
+          schedule={config.prompt_schedule}
+          numFrames={config.num_frames}
+          onChange={(schedule: PromptKeyframe[]) =>
+            setConfig("prompt_schedule", schedule)
+          }
+          disabled={disabled}
+        />
+      )}
 
       <div className={styles.section}>
         <label className={styles.fieldLabel}>Negative Prompt</label>
